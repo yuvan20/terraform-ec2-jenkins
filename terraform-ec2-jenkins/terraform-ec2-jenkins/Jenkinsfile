@@ -9,37 +9,119 @@ pipeline {
         )
     }
 
+    options {
+        disableConcurrentBuilds()
+        timestamps()
+    }
+
+    environment {
+        TF_IN_AUTOMATION = "true"
+    }
+
     stages {
 
-        stage('Terraform') {
+        stage('Environment Check') {
             steps {
                 dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
+                    sh '''
+                        echo "=============================="
+                        echo "Current User:"
+                        whoami
 
-                    script {
+                        echo "=============================="
+                        echo "Current Directory:"
+                        pwd
 
-                        if (params.ACTION == 'INIT') {
-                            sh 'terraform init'
-                        }
+                        echo "=============================="
+                        echo "Terraform Version:"
+                        terraform version
 
-                        if (params.ACTION == 'PLAN') {
-                            sh 'terraform init'
-                            sh 'terraform plan'
-                        }
+                        echo "=============================="
+                        echo "AWS Identity:"
+                        aws sts get-caller-identity
 
-                        if (params.ACTION == 'APPLY') {
-                            sh 'terraform init'
-                            sh 'terraform apply -auto-approve'
-                        }
+                        echo "=============================="
+                        echo "Terraform Files:"
+                        ls -ltr
 
-                        if (params.ACTION == 'DESTROY') {
-                            sh 'terraform init'
-                            sh 'terraform destroy -auto-approve'
-                        }
-
-                    }
+                        echo "=============================="
+                    '''
                 }
             }
         }
 
+        stage('Terraform Init') {
+            steps {
+                dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
+                    sh 'terraform init'
+                }
+            }
+        }
+
+        stage('Terraform Validate') {
+            steps {
+                dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
+                    sh 'terraform validate'
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            when {
+                expression {
+                    params.ACTION == 'PLAN' || params.ACTION == 'APPLY'
+                }
+            }
+
+            steps {
+                dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
+                    sh 'terraform plan -lock-timeout=5m'
+                }
+            }
+        }
+
+        stage('Terraform Apply') {
+            when {
+                expression {
+                    params.ACTION == 'APPLY'
+                }
+            }
+
+            steps {
+                dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
+                    sh 'terraform apply -auto-approve -lock-timeout=5m'
+                }
+            }
+        }
+
+        stage('Terraform Destroy') {
+            when {
+                expression {
+                    params.ACTION == 'DESTROY'
+                }
+            }
+
+            steps {
+                dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
+                    sh 'terraform destroy -auto-approve -lock-timeout=5m'
+                }
+            }
+        }
+
+    }
+
+    post {
+
+        always {
+            echo "Pipeline Finished"
+        }
+
+        success {
+            echo "Terraform Job Completed Successfully"
+        }
+
+        failure {
+            echo "Terraform Job Failed"
+        }
     }
 }
