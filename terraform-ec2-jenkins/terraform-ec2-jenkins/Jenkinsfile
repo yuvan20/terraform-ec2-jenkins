@@ -1,0 +1,9 @@
+pipeline{
+agent any
+parameters{choice(name:'ACTION',choices:['INIT','PLAN','APPLY','DESTROY'])}
+stages{stage('Terraform'){steps{script{
+if(params.ACTION=='INIT'){sh 'terraform init'}
+if(params.ACTION=='PLAN'){sh 'terraform plan'}
+if(params.ACTION=='APPLY'){sh 'terraform apply -auto-approve'}
+if(params.ACTION=='DESTROY'){sh 'terraform destroy -auto-approve'}
+}}}}}
