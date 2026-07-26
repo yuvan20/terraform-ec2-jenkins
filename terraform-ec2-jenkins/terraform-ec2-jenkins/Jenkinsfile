@@ -19,7 +19,7 @@ pipeline {
         string(
             name: 'TFVARS_FILE',
             defaultValue: 'terraform.tfvars',
-            description: 'Enter Terraform variables file name (.tfvars)'
+            description: 'Terraform variable file name'
         )
 
     }
@@ -69,27 +69,20 @@ pipeline {
 
                     sh '''
 
-                    echo "=============================="
-                    echo "Current User"
-                    whoami
-
-                    echo "=============================="
-                    echo "Current Directory"
-                    pwd
-
-                    echo "=============================="
                     echo "Terraform Version"
+
                     terraform version
 
-                    echo "=============================="
-                    echo "AWS Identity"
+
+                    echo "AWS Account"
+
                     aws sts get-caller-identity
 
-                    echo "=============================="
-                    echo "Terraform Files"
-                    ls -ltr
 
-                    echo "=============================="
+                    echo "Terraform Files"
+
+                    ls -ltr *.tfvars
+
 
                     '''
 
@@ -103,32 +96,31 @@ pipeline {
 
 
 
-        stage('Validate TFVARS File') {
+        stage('Set Terraform State') {
 
             steps {
 
-                dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
-
-                    sh """
-
-                    if [ ! -f ${params.TFVARS_FILE} ]; then
-
-                        echo "ERROR: ${params.TFVARS_FILE} not found"
-
-                        exit 1
-
-                    fi
+                script {
 
 
-                    echo "Using Terraform Variable File: ${params.TFVARS_FILE}"
+                    def envName = params.TFVARS_FILE
+                                    .replace('.tfvars','')
 
-                    """
+
+                    env.TF_STATE_KEY = "${envName}/terraform.tfstate"
+
+
+                    echo "Terraform State:"
+                    echo "${env.TF_STATE_KEY}"
+
 
                 }
 
             }
 
         }
+
+
 
 
 
@@ -140,69 +132,12 @@ pipeline {
 
                 dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
 
-                    sh '''
-
-                    terraform init
-
-                    '''
-
-                }
-
-            }
-
-        }
-
-
-
-
-
-        stage('Terraform Validate') {
-
-            steps {
-
-                dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
-
-                    sh '''
-
-                    terraform validate
-
-                    '''
-
-                }
-
-            }
-
-        }
-
-
-
-
-
-        stage('Terraform Plan') {
-
-            when {
-
-                expression {
-
-                    params.ACTION == 'PLAN' ||
-                    params.ACTION == 'APPLY'
-
-                }
-
-            }
-
-
-            steps {
-
-                dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
 
                     sh """
 
-                    echo "Running Terraform Plan"
+                    terraform init \
+                    -backend-config="key=${TF_STATE_KEY}"
 
-                    terraform plan \
-                    -var-file=${params.TFVARS_FILE} \
-                    -lock-timeout=5m
 
                     """
 
@@ -211,6 +146,82 @@ pipeline {
             }
 
         }
+
+
+
+
+
+
+
+        stage('Terraform Validate') {
+
+
+            steps {
+
+
+                dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
+
+
+                    sh """
+
+                    terraform validate
+
+                    """
+
+                }
+
+            }
+
+        }
+
+
+
+
+
+
+
+
+        stage('Terraform Plan') {
+
+
+            when {
+
+
+                expression {
+
+
+                    params.ACTION == 'PLAN' ||
+                    params.ACTION == 'APPLY'
+
+
+                }
+
+            }
+
+
+
+            steps {
+
+
+                dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
+
+
+                    sh """
+
+                    terraform plan \
+                    -var-file=${params.TFVARS_FILE} \
+                    -out=tfplan
+
+
+                    """
+
+                }
+
+            }
+
+        }
+
+
 
 
 
@@ -220,29 +231,34 @@ pipeline {
 
         stage('Terraform Apply') {
 
+
             when {
+
 
                 expression {
 
+
                     params.ACTION == 'APPLY'
+
 
                 }
 
             }
 
 
+
             steps {
+
 
                 dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
 
-                    sh """
 
-                    echo "Running Terraform Apply"
+                    sh """
 
                     terraform apply \
                     -auto-approve \
-                    -var-file=${params.TFVARS_FILE} \
-                    -lock-timeout=5m
+                    tfplan
+
 
                     """
 
@@ -258,31 +274,38 @@ pipeline {
 
 
 
+
+
         stage('Terraform Destroy') {
+
 
             when {
 
+
                 expression {
 
+
                     params.ACTION == 'DESTROY'
+
 
                 }
 
             }
 
 
+
             steps {
+
 
                 dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
 
-                    sh """
 
-                    echo "Running Terraform Destroy"
+                    sh """
 
                     terraform destroy \
                     -auto-approve \
-                    -var-file=${params.TFVARS_FILE} \
-                    -lock-timeout=5m
+                    -var-file=${params.TFVARS_FILE}
+
 
                     """
 
@@ -294,7 +317,6 @@ pipeline {
 
 
     }
-
 
 
 
@@ -310,19 +332,17 @@ pipeline {
 
         success {
 
-            echo "SUCCESS: Terraform execution completed"
+            echo "Terraform Deployment Successful"
 
         }
 
 
         failure {
 
-            echo "FAILED: Terraform execution failed"
+            echo "Terraform Deployment Failed"
 
         }
 
-
     }
-
 
 }
