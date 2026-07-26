@@ -1,127 +1,469 @@
 pipeline {
+
     agent any
 
+
     parameters {
+
         choice(
             name: 'ACTION',
-            choices: ['INIT', 'PLAN', 'APPLY', 'DESTROY'],
+            choices: [
+                'PLAN',
+                'APPLY',
+                'DESTROY'
+            ],
             description: 'Select Terraform Action'
         )
+
+
+        string(
+            name: 'TFVARS_FILE',
+            defaultValue: 'terraform.tfvars',
+            description: 'Enter Terraform variables file name (.tfvars)'
+        )
+
     }
+
+
 
     options {
+
         disableConcurrentBuilds()
+
         timestamps()
+
+        buildDiscarder(
+            logRotator(
+                numToKeepStr: '10'
+            )
+        )
+
     }
 
+
+
     environment {
+
         TF_IN_AUTOMATION = "true"
+
+        AWS_DEFAULT_REGION = "ap-south-1"
+
     }
+
+
+
 
     stages {
 
-        stage('Environment Check') {
+
+
+        stage('Checkout Code') {
+
             steps {
-                dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
-                    sh '''
-                        echo "=============================="
-                        echo "Current User:"
-                        whoami
 
-                        echo "=============================="
-                        echo "Current Directory:"
-                        pwd
+                checkout scm
 
-                        echo "=============================="
-                        echo "Terraform Version:"
-                        terraform version
-
-                        echo "=============================="
-                        echo "AWS Identity:"
-                        aws sts get-caller-identity
-
-                        echo "=============================="
-                        echo "Terraform Files:"
-                        ls -ltr
-
-                        echo "=============================="
-                    '''
-                }
             }
+
         }
+
+
+
+
+
+        stage('Environment Check') {
+
+            steps {
+
+
+                dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
+
+
+                    sh '''
+
+                    echo "=============================="
+
+                    echo "Current User"
+
+                    whoami
+
+
+                    echo "=============================="
+
+                    echo "Current Directory"
+
+                    pwd
+
+
+                    echo "=============================="
+
+                    echo "Terraform Version"
+
+                    terraform version
+
+
+                    echo "=============================="
+
+                    echo "AWS Identity"
+
+                    aws sts get-caller-identity
+
+
+                    echo "=============================="
+
+                    echo "Terraform Files"
+
+                    ls -ltr *.tf
+                    ls -ltr *.tfvars
+
+
+                    echo "=============================="
+
+
+                    '''
+
+                }
+
+            }
+
+        }
+
+
+
+
+
+
+
+        stage('Validate TFVARS File') {
+
+
+            steps {
+
+
+                dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
+
+
+                    sh """
+
+                    if [ ! -f ${params.TFVARS_FILE} ]; then
+
+                    echo "ERROR: ${params.TFVARS_FILE} does not exist"
+
+                    exit 1
+
+                    fi
+
+
+                    echo "Using Terraform Variable File: ${params.TFVARS_FILE}"
+
+
+                    """
+
+                }
+
+            }
+
+        }
+
+
+
+
+
+
 
         stage('Terraform Init') {
+
+
             steps {
+
+
                 dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
-                    sh 'terraform init'
+
+
+                    sh '''
+
+                    terraform init
+
+                    '''
+
                 }
+
             }
+
         }
+
+
+
+
+
+
 
         stage('Terraform Validate') {
+
+
             steps {
+
+
                 dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
-                    sh 'terraform validate'
+
+
+                    sh '''
+
+                    terraform validate
+
+                    '''
+
                 }
+
             }
+
         }
+
+
+
+
+
+
+
 
         stage('Terraform Plan') {
+
+
             when {
+
+
                 expression {
-                    params.ACTION == 'PLAN' || params.ACTION == 'APPLY'
+
+                    params.ACTION == 'PLAN' ||
+                    params.ACTION == 'APPLY'
+
                 }
+
             }
 
+
+
             steps {
+
+
                 dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
-                    sh 'terraform plan -lock-timeout=5m'
+
+
+                    sh """
+
+                    terraform plan \
+                    -var-file=${params.TFVARS_FILE} \
+                    -lock-timeout=5m
+
+
+                    """
+
                 }
+
             }
+
         }
+
+
+
+
+
+
+
+
+
+        stage('Terraform Apply Approval') {
+
+
+            when {
+
+
+                expression {
+
+                    params.ACTION == 'APPLY'
+
+                }
+
+            }
+
+
+
+            steps {
+
+
+                input(
+
+                    message: 'Approve Terraform Apply?',
+
+                    ok: 'Proceed'
+
+                )
+
+            }
+
+        }
+
+
+
+
+
+
+
 
         stage('Terraform Apply') {
+
+
             when {
+
+
                 expression {
+
                     params.ACTION == 'APPLY'
+
                 }
+
             }
 
+
+
             steps {
+
+
                 dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
-                    sh 'terraform apply -auto-approve -lock-timeout=5m'
+
+
+                    sh """
+
+                    terraform apply \
+                    -auto-approve \
+                    -var-file=${params.TFVARS_FILE} \
+                    -lock-timeout=5m
+
+
+                    """
+
                 }
+
             }
+
         }
+
+
+
+
+
+
+
+
+
+        stage('Terraform Destroy Approval') {
+
+
+            when {
+
+
+                expression {
+
+                    params.ACTION == 'DESTROY'
+
+                }
+
+            }
+
+
+
+            steps {
+
+
+                input(
+
+                    message: 'WARNING: Destroy Infrastructure?',
+
+                    ok: 'Destroy'
+
+                )
+
+            }
+
+        }
+
+
+
+
+
+
+
 
         stage('Terraform Destroy') {
+
+
             when {
+
+
                 expression {
+
                     params.ACTION == 'DESTROY'
+
                 }
+
             }
+
+
 
             steps {
+
+
                 dir('terraform-ec2-jenkins/terraform-ec2-jenkins') {
-                    sh 'terraform destroy -auto-approve -lock-timeout=5m'
+
+
+                    sh """
+
+                    terraform destroy \
+                    -auto-approve \
+                    -var-file=${params.TFVARS_FILE} \
+                    -lock-timeout=5m
+
+
+                    """
+
                 }
+
             }
+
         }
 
+
     }
+
+
+
+
 
     post {
 
+
         always {
-            echo "Pipeline Finished"
+
+            echo "Terraform Pipeline Completed"
+
         }
+
 
         success {
-            echo "Terraform Job Completed Successfully"
+
+            echo "SUCCESS: Terraform execution completed"
+
         }
 
+
         failure {
-            echo "Terraform Job Failed"
+
+            echo "FAILED: Terraform execution failed"
+
         }
+
+
     }
+
+
 }
